@@ -1,0 +1,4 @@
+envs/tf_baker_env/lib/':$LD_LIBRARY_PATH
+
+export PKG_CONFIG_PATH=/home/rglenn1/opencv_build/build//unix-install/:$PKG_CONFIG_PATH
+
