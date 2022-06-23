@@ -9,11 +9,13 @@ from tqdm import tqdm
 import dimod
 import math
 import scipy.stats as ss 
+import matplotlib.pyplot as plt
 
-
-def find_marked_locations(g_img, g_img_s):
-    g_img = cv2.cvtColor(io.imread(g_img), cv2.COLOR_RGB2GRAY)
-    g_img_s = cv2.cvtColor(io.imread(g_img_s), cv2.COLOR_RGB2GRAY)
+def find_marked_locations(img, img_s):
+    #g_img = cv2.cvtColor(io.imread(g_img), cv2.COLOR_RGB2GRAY)
+    #g_img_s = cv2.cvtColor(io.imread(g_img_s), cv2.COLOR_RGB2GRAY)
+    g_img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    g_img_s = cv2.cvtColor(img_s, cv2.COLOR_RGB2GRAY)
     scribble = []
     non_scribble = []
     for i in range(g_img.shape[0]):
@@ -26,10 +28,11 @@ def find_marked_locations(g_img, g_img_s):
 
 
 
-def assign_scribble_pixels( img_file, g_img, g_img_s, img_file_scribbled):
+def assign_scribble_pixels( img, img_s, g_img, g_img_s, rgb_s):
    
-    img = io.imread(img_file)
-    rgb_s = mpimg.imread(img_file_scribbled)[:,:,:3]
+    #img = io.imread(img_file)
+    #rgb_s = mpimg.imread(img_file_scribbled)[:,:,:3]
+    img = img
 
     scribble = []
     for i in range(img.shape[0]):
@@ -44,8 +47,8 @@ def assign_scribble_pixels( img_file, g_img, g_img_s, img_file_scribbled):
         img_s_key.add(tuple(rgb_s[i,j,:3]))
     # img_s_key # should only have two values
     
-    #scribbles_pos, _ = find_marked_locations(img, img_s)
-    scribbles_pos, _ = find_marked_locations(img_file, img_file_scribbled)
+    scribbles_pos, _ = find_marked_locations(img, img_s)
+    #scribbles_pos, _ = find_marked_locations(img_file, img_file_scribbled)
     scribbles_pos_dict = defaultdict(list)
 
     for pos in scribbles_pos:
@@ -65,17 +68,17 @@ def assign_scribble_pixels( img_file, g_img, g_img_s, img_file_scribbled):
     return scribbles_pos_dict
 
 
-def compute_pdfs(imfile, imfile_scrib):
-    rgb = mpimg.imread(imfile)[:,:,:3]
+def compute_pdfs(rgb, rgb_s, img, img_s):
+    #rgb = mpimg.imread(imfile)[:,:,:3]
     yuv = rgb2yiq(rgb)
-    rgb_s = mpimg.imread(imfile_scrib)[:,:,:3]
+    #rgb_s = mpimg.imread(imfile_scrib)[:,:,:3]
     yuv_s = rgb2yiq(rgb_s)
     # io.imshow(rgb)
     # io.imshow(rgb_s)
         
     # find the scribble pixels    
-    #scribbles = find_marked_locations(rgb, rgb_s)
-    scribbles, _ = find_marked_locations(imfile, imfile_scrib)
+    scribbles, _ = find_marked_locations(img, img_s)
+    #scribbles, _ = find_marked_locations(imfile, imfile_scrib)
     if not scribbles:
         raise Exception
 
@@ -83,21 +86,35 @@ def compute_pdfs(imfile, imfile_scrib):
     
     # separately store background and foreground scribble pixels in the dictionary comps
     comps = defaultdict(lambda:np.array([]).reshape(0,3))
+    #print("dictionary", comps)
     for (i, j) in scribbles:
          imageo[i,j,:] = rgb_s[i,j,:]
          # scribble color as key of comps
          comps[tuple(imageo[i,j,:])] = np.vstack([comps[tuple(imageo[i,j,:])], yuv[i,j,:]])
+         #print((imageo[i,j,:]))
     mu, sigma = {}, {}
+    #print(comps.keys())
     # compute MLE parameters for Gaussians
+    sig = 0.005
     for c in comps:
          mu[c] = np.mean(comps[c], axis=0)
-         sigma[c] = np.cov(comps[c].T)
+         sigma[c] = np.cov(comps[c].T,)
+         #print(sigma[c])
+         #sigma[c] = np.array([[sig, sig*0.4, sig*0.6], [sig, sig*0.3, sig*0.7], [sig, sig*3, sig*0.4] ])
+         #sigma[c] =0.000005
+    #print(sigma)
+    # sigma = np.array([[ 0.02057979,  0.00381766, -0.00635883],\
+    #     [ 0.00381766,  0.0030234,  -0.00179508],\
+    #     [-0.00635883, -0.00179508,  0.00228135]],\
+    #     [[ 0.00535723, -0.00165761,  0.00094871],\
+    #     [-0.00165761,  0.00145263, -0.00064738],\
+    #     [ 0.00094871, -0.00064738,  0.00034484]])
     return (mu, sigma)
 
 
-def spin_ice_J(img_file, g_img):
+def spin_ice_J(rgb, g_img):
     row, col = g_img.shape[:2]
-    rgb = mpimg.imread(img_file)[:,:,:3]
+    #rgb = mpimg.imread(img_file)[:,:,:3]
     std = np.std(g_img)
 
     rgb_t = np.reshape(rgb.T, (3,-1)) # images.shape = (3,5120000)
@@ -156,7 +173,7 @@ def spin_ice_J(img_file, g_img):
                 J[(a, b)] = -res
     return J
 
-def spin_ice_non_J(rgb_s, g_img,  rgb, non_scribbles_pos, m, s ):
+def spin_ice_non_J(rgb_s, g_img,  rgb, non_scribbles_pos, m, s, red, blue ):
 
 
     
@@ -169,20 +186,18 @@ def spin_ice_non_J(rgb_s, g_img,  rgb, non_scribbles_pos, m, s ):
 
     mult_factor_lambda = 40
 
-    # Positions for the sink and 
-    red = (0.92941177, 0.10980392, 0.14117648)
-    blue = (0.24705882, 0.28235295, 0.8)
+
     for val in m:
         if round(sum(val),2) == 1.33:
             blue = val
         else:
             red = val
-
+    plotData = np.zeros((rgb.shape[0], rgb.shape[1]))
     for i, pos in tqdm(enumerate(non_scribbles_pos)):
         
         var0 = ss.multivariate_normal.pdf(rgb[pos[0],pos[1],:], m[blue], s[blue])
         var1 = ss.multivariate_normal.pdf(rgb[pos[0],pos[1],:], m[red], s[red])
-        
+        plotData[pos[0], pos[1]] = var1
     
         #print("var0: {} var1:{} res0:{}, res1:{} ".format(var0, var1, res0, res1))
         import math
@@ -203,7 +218,12 @@ def spin_ice_non_J(rgb_s, g_img,  rgb, non_scribbles_pos, m, s ):
             non_s_j[(pos[0]*col + pos[1], 't')] = - (mult_factor_lambda * np.log(res1))
             
         #print("******** got var1: {}, var2: {}".format(var0, var1))
-        
+    
+    if True:
+        x = range(plotData.shape[0])
+        y = range(plotData.shape[1])
+        fig2 = plt.figure()
+        ax2 = fig2.add_subplot(111)
+        ax2.contourf(y, x, plotData)
+        plt.show()
     return non_s_j
-        #print(res0, " : ", res1)
-    print("total:{} nane:{}".format(i, cnt))
